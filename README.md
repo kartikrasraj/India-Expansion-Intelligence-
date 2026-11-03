@@ -93,7 +93,19 @@ Details: `reports/model_card_manufacturing.md`, `models/registry.json`, `reports
 - The new 2022-23 base GDP series is not used: state back series were incomplete at the time of the build, and
   price bases are never mixed.
 
-## Deploying (Streamlit Community Cloud)
+## Deploying
+
+### Vercel (static web app)
+
+The browser app is in `web/`; it runs the scoring engine locally and uses the committed bundle in `web/data/`.
+In Vercel Project Settings, set **Root Directory** to `web` and the **Framework Preset** to **Other**. Leave
+the build and install commands empty so Vercel deploys the static files directly. The `web/vercel.json` file
+contains the static app's headers and clean-URL settings.
+
+Do not set the Vercel Root Directory to the repository root: that exposes the Streamlit `app.py` to Vercel's
+Python Function detection, which expects a WSGI/ASGI handler and cannot run this Streamlit entry point.
+
+### Streamlit Community Cloud
 
 The app needs only `app.py`, `pages/`, `ui/`, `scoring/`, `etl/` (imports), `data/curated/*.parquet`,
 `data/source_register.csv`, `data/raw/geoboundaries_ind_adm1/` and `reports/`. Point Streamlit Cloud at `app.py`
