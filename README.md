@@ -98,12 +98,9 @@ Details: `reports/model_card_manufacturing.md`, `models/registry.json`, `reports
 ### Vercel (static web app)
 
 The browser app is in `web/`; it runs the scoring engine locally and uses the committed bundle in `web/data/`.
-In Vercel Project Settings, set **Root Directory** to `web` and the **Framework Preset** to **Other**. Leave
-the build and install commands empty so Vercel deploys the static files directly. The `web/vercel.json` file
-contains the static app's headers and clean-URL settings.
-
-Do not set the Vercel Root Directory to the repository root: that exposes the Streamlit `app.py` to Vercel's
-Python Function detection, which expects a WSGI/ASGI handler and cannot run this Streamlit entry point.
+The root `vercel.json` explicitly builds and serves only `web/` as static files, so the repository can remain
+the Vercel **Root Directory** without Vercel interpreting the Streamlit `app.py` as a Python Function. Keep the
+Framework Preset set to **Other** (the config also sets it to `null`) and redeploy from the repository root.
 
 ### Streamlit Community Cloud
 
