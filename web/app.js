@@ -234,28 +234,18 @@
       return `<div class="card stat"><div class="v">${sub.length}</div><div class="l">${lab}${sub.length ? ': ' + sub.map((x) => esc(label(x.sid))).join(', ') : ''}</div></div>`;
     }).join('');
     const gaps = res.ranking.filter((r) => r.disclosure).map((r) => `${r.state}: ${r.disclosure}`);
-    const dims = Object.keys(prof.indicators);
-    const rows = compared.map((sid) => {
-      const g = res.indicators.filter((r) => r.state_id === sid);
-      const cells = dims.map((d) => { const gd = g.filter((r) => r.dimension === d); const o = gd.filter((r) => isNum(r.score)).length; return `<td class="num ${o !== gd.length ? 'gap' : ''}">${o}/${gd.length}</td>`; }).join('');
-      const per = g.filter((r) => /^momentum_/.test(r.indicator)).map((r) => r.period).sort().pop() || '';
-      const st = status.find((x) => x.sid === sid).st;
-      return `<tr><th scope="row">${esc(label(sid))}</th><td>${badge(st, st === 'Forecast + ranking' ? 'blue' : st === 'Excluded' ? 'amber' : 'grey')}</td>${cells}<td class="num ${per && per < '2024' ? 'gap' : ''}">${esc(per)}</td></tr>`;
-    }).join('');
     const vint = {};
     res.indicators.filter((r) => r.observed).forEach((r) => { (vint[r.label] = vint[r.label] || { src: new Set(), per: new Set() }); vint[r.label].src.add(sourceTag(r).split(' · ')[0]); vint[r.label].per.add(String(r.period)); });
     const vrows = Object.entries(vint).sort().map(([k, v]) => { const ps = [...v.per].sort(); return `<tr><td>${esc(k)}</td><td>${esc([...v.src].join(', '))}</td><td class="num">${esc(ps.length > 1 ? ps[0] + ' to ' + ps[ps.length - 1] : ps[0])}</td></tr>`; }).join('');
     main.innerHTML = `<div class="stack"><div><p class="eyebrow">Step 2 of 3 · ${esc(describe(p))}</p><h1>${res.ranking.length} of ${compared.length} states can be compared</h1>
       <p class="lead">For ${esc(prof.label.toLowerCase())}, each state needs at least one observed official indicator in: <strong>${prof.mandatory_dimensions.map((d) => esc(S.dimensions[d].label.toLowerCase())).join(', ')}</strong>. Nothing is filled in where data are missing.</p></div>
       <div class="grid" style="--min:240px">${tiles}</div>
+      <div class="btns cta"><a class="btn primary" href="#/results">See the ranking</a><a class="btn" href="#/profile">Edit profile</a></div>
       ${gaps.length ? `<div class="caveat" role="note"><strong>${gaps.length} gap(s) disclosed, not filled</strong><br>${gaps.map(esc).join(' · ')}</div>` : ''}
       ${!prof.model_target ? `<div class="note"><strong>No forecast is offered for ${esc(prof.label.toLowerCase())}.</strong> ${esc(prof.target_note || '')} States are compared on the ranking index only; the outlook dimension uses historical growth momentum.</div>` : ''}
       ${!validated && prof.model_target ? `<div class="note">Forecast unavailable: ${esc(reg.reason || 'model not validated')}.</div>` : ''}
-      <section><h2 style="margin-bottom:12px">Indicator coverage</h2><div class="tbl-wrap"><table><thead><tr><th>State</th><th>Status</th>${dims.map((d) => `<th class="num">${esc(S.dimensions[d].label)}</th>`).join('')}<th class="num">Latest state accounts</th></tr></thead><tbody>${rows}</tbody></table></div>
-      <p class="small muted">observed / indicators in the profile. Amber = an indicator is not published for that state; weights within the dimension are renormalised over what is observed.</p>
-      <details><summary>Why each state has this status</summary><ul>${status.map((x) => `<li><strong>${esc(label(x.sid))}</strong> · ${esc(x.st)}: ${esc(x.why)}</li>`).join('')}</ul></details></section>
-      <section><h2 style="margin-bottom:12px">Source vintages used</h2><div class="tbl-wrap"><table><thead><tr><th>Indicator</th><th>Source</th><th class="num">Period(s)</th></tr></thead><tbody>${vrows}</tbody></table></div></section>
-      <div class="btns"><a class="btn primary" href="#/results" style="min-height:52px;padding:0 24px">See the ranking</a><a class="btn" href="#/profile">Edit profile</a></div></div>`;
+      <details><summary>Why each state has this status</summary><ul>${status.map((x) => `<li><strong>${esc(label(x.sid))}</strong> · ${esc(x.st)}: ${esc(x.why)}</li>`).join('')}</ul></details>
+      <section><h2 style="margin-bottom:12px">Source vintages used</h2><div class="tbl-wrap"><table><thead><tr><th>Indicator</th><th>Source</th><th class="num">Period(s)</th></tr></thead><tbody>${vrows}</tbody></table></div></section></div>`;
   }
 
   function cellShade(v) {
@@ -412,36 +402,23 @@
   }
 
   function methodsView() {
-    const steps = [['01', 'Raw files', 'Official XLSX/HTML/PDF saved unchanged with sha256 in the source register'], ['02', 'Parse & map', 'Fixed state alias map, units converted once, footnotes stripped'],
-      ['03', 'Validate', 'Duplicates, ±40% jumps flagged, single price base, edition revisions logged'], ['04', 'Warehouse', 'DuckDB: dim_state, fact_economic, fact_indicator'],
-      ['05', 'Model', 'Lag features as of release date; ridge vs persistence and 3-year-mean baselines'], ['06', 'Score', 'Percentiles vs 30 states, weights v3, your priorities (computed in your browser)']];
     const regRows = Object.entries(S.industries).map(([k, v]) => { const r = B.registry[v.model_target || k] || {}; return `<tr><th scope="row">${esc(v.label)}</th><td>${badge((r.status || 'not trained').replace('_', ' '), r.status === 'validated' ? 'blue' : 'grey')}</td><td class="s14">${esc(r.reason || v.target_note || '')}</td></tr>`; }).join('');
     const dkeys = Object.keys(S.dimensions);
     const wRows = Object.values(S.industries).map((v) => `<tr><th scope="row">${esc(v.label)}</th>${dkeys.map((d) => `<td class="num">${v.weights[d] === undefined ? '<span class="muted" title="no auditable indicator for this industry">—</span>' : v.weights[d]}</td>`).join('')}</tr>`).join('');
     const whyRows = Object.values(S.industries).map((v) => `<details><summary>${esc(v.label)}</summary><div class="tbl-wrap"><table><thead><tr><th>Dimension</th><th>Indicator</th><th class="num">Weight</th><th>Why it is in this profile</th></tr></thead><tbody>${Object.entries(v.indicators).map(([d, m]) => Object.entries(m).map(([c, w]) => `<tr><td class="small">${esc(S.dimensions[d].label)}</td><td>${esc(S.indicators[c].label)}</td><td class="num">${w}</td><td class="small">${esc((v.why || {})[c] || '')}</td></tr>`).join('')).join('')}</tbody></table></div></details>`).join('');
     const indRows = Object.entries(S.indicators).map(([k, v]) => `<tr><td>${esc(v.label)}</td><td class="small">${esc(v.unit)}</td><td class="small">${v.direction > 0 ? 'higher is better' : 'lower is better'}</td><td class="small">${esc(v.proxy || '')}</td></tr>`).join('');
-    const em = {}; B.eligibility.forEach((r) => { (em[r.state] = em[r.state] || {})[r.industry] = r.status; });
-    const inds = Object.keys(S.industries);
-    const emRows = Object.entries(em).map(([s, v]) => `<tr><th scope="row">${esc(s)}</th>${inds.map((i) => `<td>${badge(v[i], v[i] === 'approve' ? 'blue' : v[i] === 'exclude' ? 'amber' : 'grey')}</td>`).join('')}</tr>`).join('');
     const urls = {}; B.indicators.forEach((r) => { String(r.url || '').split(' ; ').filter(Boolean).forEach((u) => { urls[u] = (urls[u] || 0) + 1; }); });
     const srcList = Object.keys(urls).sort().map((u) => `<li><a href="${esc(u)}" rel="noopener" target="_blank">${esc(u.replace(/^https?:\/\//, '').slice(0, 110))}</a></li>`).join('');
-    const md = window.marked ? window.marked.parse(B.model_card) : `<pre>${esc(B.model_card)}</pre>`;
-    main.innerHTML = `<div class="stack"><div><h1>Methods and data lineage</h1><p class="lead">How each number gets from a government file to your screen, what the model can and cannot say, and the exact weights used. Data refreshed ${esc(B.generated)} · scoring weights v3.</p></div>
-      <section><h2 style="margin-bottom:12px">Lineage</h2><ol class="lineage grid" style="--min:170px;gap:10px">${steps.map(([n, t, d]) => `<li class="card"><span class="mono small muted">${n}</span><br><strong>${t}</strong><p class="small muted" style="margin:4px 0 0">${esc(d)}</p></li>`).join('')}</ol></section>
-      <section><h2 style="margin-bottom:12px">Forecast models and targets</h2><div class="tbl-wrap"><table><thead><tr><th>Industry</th><th>Status</th><th>Reason</th></tr></thead><tbody>${regRows}</tbody></table></div>
-        <details style="margin-top:12px"><summary>Model card: manufacturing (full)</summary><div class="md">${md}</div></details></section>
+    main.innerHTML = `<div class="stack"><div><h1>How the index works</h1><p class="lead">What the model can and cannot say, the exact weights used, and where the numbers come from. Data refreshed ${esc(B.generated)} · scoring weights v3.</p></div>
+      <section><h2 style="margin-bottom:12px">Forecast models and targets</h2><div class="tbl-wrap"><table><thead><tr><th>Industry</th><th>Status</th><th>Reason</th></tr></thead><tbody>${regRows}</tbody></table></div></section>
       <section><h2 style="margin-bottom:6px">Default weights (v3)</h2><p class="small muted">Design defaults from the blueprint, tilted by industry. NOT learned optima. Indicators are scored as their percentile among 30 states (cost and risk reversed); missing indicators are dropped and weights renormalised, never filled; a state missing a mandatory dimension is excluded.</p>
         <div class="tbl-wrap"><table><thead><tr><th>Industry</th>${dkeys.map((d) => `<th class="num">${esc(S.dimensions[d].label)}</th>`).join('')}</tr></thead><tbody>${wRows}</tbody></table></div>
-        <p class="small muted" style="margin:12px 0 4px">— = the industry has no such dimension: no auditable indicator exists for it, so its weight is spread over the others.</p>
-        <h3 style="margin:16px 0 6px">Indicators used by each industry, and why</h3><p class="small muted">Only indicators with a stated business link are scored. Operational needs can add indicators (e.g. digital-first adds internet subscriptions). Strengths and watch-outs on the results page compare each state with the other states you chose.</p>${whyRows}
+        <p class="small muted" style="margin:12px 0 0">— = the industry has no such dimension: no auditable indicator exists for it, so its weight is spread over the others.</p></section>
+      <section><h2 style="margin-bottom:6px">Indicators used by each industry, and why</h2><p class="small muted">Only indicators with a stated business link are scored. Operational needs can add indicators (e.g. digital-first adds internet subscriptions). Strengths and watch-outs on the results page compare each state with the other states you chose.</p>${whyRows}
         <details style="margin-top:12px"><summary>Indicator definitions</summary><div class="tbl-wrap"><table><thead><tr><th>Indicator</th><th>Unit</th><th>Direction</th><th>Caveat</th></tr></thead><tbody>${indRows}</tbody></table></div></details></section>
-      <section><h2 style="margin-bottom:12px">Eligibility matrix (7 states × 6 industries, default settings)</h2><div class="tbl-wrap"><table><thead><tr><th>State</th>${inds.map((i) => `<th>${esc(S.industries[i].label)}</th>`).join('')}</tr></thead><tbody>${emRows}</tbody></table></div></section>
-      <section><h2 style="margin-bottom:12px">Coverage of the state accounts panel</h2><img src="coverage_heatmap.png" alt="Heatmap of state by fiscal year by activity coverage in the RBI Handbook 2024-25; Gujarat lacks 2023-24 and 2024-25, several small states lack 2024-25" style="width:100%;border:1px solid var(--line);border-radius:12px;background:#fff"></section>
-      <section><h2 style="margin-bottom:12px">Sources</h2><details><summary>${Object.keys(urls).length} official source pages behind the numbers shown</summary><ul class="small">${srcList}</ul></details>
+      <section><h2 style="margin-bottom:12px">Data sources</h2><details><summary>${Object.keys(urls).length} official source pages behind the numbers shown</summary><ul class="small">${srcList}</ul></details>
         <p style="font-weight:600;margin:16px 0 6px">Not available (never estimated)</p><ul class="s14">${B.unavailable.map((r) => `<li><strong>${esc(r.source.replace(/_/g, ' '))}</strong>: ${esc(r.reason)}</li>`).join('')}</ul>
-        <div class="note">Secondary pages (GST collections, minimum wages, private salary surveys) are shown only where the number was found in a saved copy of the cited page; they never enter a score.</div></section>
-      <section class="card"><h2>Was this comparison useful?</h2><p class="small muted">Feedback stays in this browser tab and is never used as ground truth for any model.</p><div class="btns" id="fb"><button class="btn" data-v="yes">Yes</button><button class="btn" data-v="no">Not really</button></div></section></div>`;
-    $('#fb').addEventListener('click', (e) => { if (e.target.dataset.v) $('#fb').innerHTML = '<span role="status" style="color:var(--blue-dark);font-weight:600">Thanks, noted.</span>'; });
+        <div class="note">Secondary pages (GST collections, minimum wages, private salary surveys) are shown only where the number was found in a saved copy of the cited page; they never enter a score.</div></section></div>`;
   }
 
   // ---------- router

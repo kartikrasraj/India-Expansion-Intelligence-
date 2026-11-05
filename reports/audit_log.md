@@ -92,6 +92,18 @@
 - Audit: ordinal categories verified by locating the state under its category in the raw page (negative controls
   fail); PDF-derived values verified from their printed components. Audit trace 20/20; 132 tests pass.
 
+## UI streamlining (5 Nov 2026)
+- Methods page renamed "How the index works" (web + Streamlit). Kept, in order: forecast models and targets,
+  default weights, indicators used by each industry, data sources. Removed: lineage steps, eligibility matrix,
+  state-accounts coverage heatmap, feedback card. `eligibility` key and `coverage_heatmap.png` copy dropped from
+  the web bundle (`scripts/export_web.py`); the reports files themselves are unchanged.
+- Eligibility page: "See the ranking" / "Edit profile" moved directly under the summary tiles (full-width buttons
+  on narrow screens). Results page untouched.
+- 6 Nov: removed the "Model card: manufacturing (full)" expander from How the index works (the `model_card`
+  bundle key and the `marked` script go with it; `reports/model_card_manufacturing.md` is kept) and the Indicator
+  coverage table from the Eligibility page ("Why each state has this status" and Source vintages kept). No data or scores changed. 131/132 tests pass; the failure is
+  `test_warehouse_tables` because `data/curated/warehouse.duckdb` is not in the checkout (gitignored build output).
+
 ## Open questions
 1. Download the RBI XLSX files by hand? Optional: the HTML tables are the same official data.
 2. Gujarat FY 2023-24/2024-25 GSVA from Gujarat DES — different source; add as a separate, labelled panel?

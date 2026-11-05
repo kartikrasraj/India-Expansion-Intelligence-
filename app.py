@@ -15,6 +15,6 @@ pages = [
     st.Page("pages/profile.py", title="1 · Business profile", url_path="profile"),
     st.Page("pages/eligibility.py", title="2 · Eligibility", url_path="eligibility"),
     st.Page("pages/results.py", title="3 · Results", url_path="results"),
-    st.Page("pages/methods.py", title="Methods & data", url_path="methods"),
+    st.Page("pages/methods.py", title="How the index works", url_path="methods"),
 ]
 st.navigation(pages, position="top").run()

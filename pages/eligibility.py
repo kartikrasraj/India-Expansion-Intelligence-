@@ -62,6 +62,12 @@ for col, (lab, kind) in zip(c, tile_set):
     with col:
         theme.stat(str(len(sub)), lab + (": " + ", ".join(name_of(s) for s in sub.state_id) if len(sub) else ""))
 
+b1, b2, _ = st.columns([2, 2, 5])
+if b1.button("See the ranking", type="primary", use_container_width=True):
+    st.switch_page("pages/results.py")
+if b2.button("Edit profile", use_container_width=True):
+    st.switch_page("pages/profile.py")
+
 gaps = [f"{r.state}: {r.disclosure}" for r in res.ranking.itertuples() if r.disclosure]
 if gaps:
     theme.caveat(" · ".join(gaps), f"{len(gaps)} gap(s) disclosed, not filled")
@@ -70,32 +76,6 @@ if not prof.get("model_target"):
                "the ranking index only; the outlook dimension uses historical growth momentum.")
 if not validated and prof.get("model_target"):
     theme.note("Forecast unavailable: " + reg.get("reason", "model not validated") + ".")
-
-st.subheader("Indicator coverage")
-dims = list(prof["indicators"])
-cov = []
-for sid in [s for s in compared if s not in set(res.excluded.state_id)] + list(res.excluded.state_id):
-    g = t[t.state_id == sid]
-    row = {"State": name_of(sid), "Status": status.set_index("state_id").status.get(sid, "")}
-    for d in dims:
-        gd = g[g.dimension == d]
-        row[S["dimensions"][d]["label"]] = f"{int(gd.score.notna().sum())}/{len(gd)}"
-    per = g[g.indicator.isin(["momentum_manufacturing", "momentum_services", "momentum_gsva_total"])].period
-    row["Latest state accounts"] = per.max() if len(per) else ""
-    cov.append(row)
-cov = pd.DataFrame(cov)
-
-
-def _amber(v):
-    if isinstance(v, str) and "/" in v:
-        a, b = v.split("/")
-        return "color:#8A5A00;font-weight:600" if a != b else ""
-    return ""
-
-
-st.dataframe(cov.style.map(_amber), hide_index=True, use_container_width=True)
-st.caption("observed / indicators in the profile. Amber = an indicator is not published for that state; weights within "
-           "the dimension are renormalised over what is observed.")
 
 with st.expander("Why each state has this status"):
     for r in status.itertuples():
@@ -108,9 +88,4 @@ v = (t[t.observed].assign(src=[source_tag(r) for r in t[t.observed].itertuples()
 st.dataframe(v.reset_index().rename(columns={"label": "Indicator", "source": "Source", "periods": "Period(s)"}),
              hide_index=True, use_container_width=True)
 
-b1, b2 = st.columns([1, 4])
-if b1.button("See the ranking", type="primary", use_container_width=True):
-    st.switch_page("pages/results.py")
-if b2.button("Edit profile"):
-    st.switch_page("pages/profile.py")
 theme.footer()

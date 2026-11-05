@@ -49,7 +49,6 @@ def main():
         if (ROOT / "data/curated/forecast_manufacturing.parquet").exists() else pd.DataFrame()
     fcs = {r.state_id: {"v": float(r.forecast), "lo": float(r.lo), "hi": float(r.hi), "p": r.forecast_fy,
                         "mae": float(r.holdout_mae)} for r in fc.itertuples()}
-    elig = pd.read_csv(ROOT / "reports/eligibility_matrix.csv").fillna("").to_dict("records")
     unavailable = pd.read_csv(ROOT / "reports/unavailable_sources.csv").fillna("").to_dict("records")
     secondary = latest(quality=("secondary", "private"))
     sec = [{"s": r.state_id, "c": r.feature_code, "v": float(r.value), "u": r.unit, "p": str(r.period), "q": r.quality,
@@ -58,9 +57,8 @@ def main():
         "generated": pd.Timestamp.now().strftime("%Y-%m-%d"),
         "spec": s, "states": {sid: name_of(sid) for sid in PILOT_IDS}, "pilots": list(PILOT_IDS),
         "indicators": ind, "reference": refd, "forecasts": fcs, "registry": registry(),
-        "eligibility": elig, "unavailable": unavailable, "secondary": sec,
+        "unavailable": unavailable, "secondary": sec,
         "demos": {k: {**v, "profile": {**v["profile"], "states": list(PILOT_IDS)}} for k, v in DEMOS.items()},
-        "model_card": (ROOT / "reports/model_card_manufacturing.md").read_text(),
     }
     (OUT / "bundle.json").write_text(json.dumps(bundle, separators=(",", ":"), default=str, allow_nan=False))
     g = geo()
@@ -69,7 +67,6 @@ def main():
             return [rnd(x) for x in c] if isinstance(c[0], (list, tuple)) else [round(c[0], 3), round(c[1], 3)]
         f["geometry"]["coordinates"] = rnd(f["geometry"]["coordinates"])
     (OUT / "india_adm1.json").write_text(json.dumps(g, separators=(",", ":")))
-    (ROOT / "web" / "coverage_heatmap.png").write_bytes((ROOT / "reports/coverage_heatmap.png").read_bytes())
 
     # parity fixtures: Python results for a spread of profiles
     cases = [d["profile"] | {"states": list(PILOT_IDS)} for d in DEMOS.values()]
