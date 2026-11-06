@@ -6,7 +6,9 @@ from scoring.data import spec
 from scoring.score import effective_weights
 from ui import charts, theme
 from ui.export import csv_bytes, pdf_bytes
-from ui.narrative import disclosure_lines, fmt, managerial, model_explanation, reasons, source_tag
+from scoring.score import capital_fit
+from ui.narrative import (capital_line, capital_summary, disclosure_lines, fmt, managerial, model_explanation, reasons,
+                          rupees_crore, source_tag)
 from ui.state import describe, get_profile, run, to_profile
 
 p = get_profile()
@@ -48,6 +50,8 @@ d2.download_button("PDF brief", pdf_bytes(res, p), file_name="expansion_brief.pd
 stab = base.stability.set_index("state_id") if base.stability is not None else None
 expl, has_model = model_explanation(p["industry"])
 fc_rows = res.indicators[res.indicators.indicator.str.startswith("forecast")].set_index("state_id")
+fit = capital_fit(res)
+fit_rows = fit["benchmarks"].set_index("state_id") if fit and len(fit["benchmarks"]) else None
 cols = st.columns(len(top))
 for i, (col, r) in enumerate(zip(cols, top.itertuples())):
     pos, neg = reasons(res, r.state_id, 2)
@@ -55,19 +59,15 @@ for i, (col, r) in enumerate(zip(cols, top.itertuples())):
     badges = theme.badge(f"Data confidence: {level}", "blue" if level == "High" else "amber")
     if stab is not None and not whatif and r.state_id in stab.index:
         badges += theme.badge(f"Same rank in {int(100 * stab.loc[r.state_id].share_same_rank)}% of ±20% re-weightings")
-    if has_model:
-        if r.state_id in fc_rows.index and pd.notna(fc_rows.loc[r.state_id].value):
-            f = fc_rows.loc[r.state_id]
-            fc = (f"<div class='ei-fc'><span class='ei-src'>Forecast · manufacturing real GSVA growth, {f.period}</span>"
-                  f"<span class='ei-mono' style='font-size:18px'>{f.value:+.1f}%</span>"
-                  f"<span class='ei-src'>{theme.esc(f.note)}</span></div>")
-        else:
-            fc = ("<div class='ei-fc'><span class='ei-src'>Forecast</span><strong>Not available</strong>"
-                  "<span class='ei-src'>State accounts end before the latest year, so no forecast can be issued. "
-                  "Ranking only.</span></div>")
-    else:
-        fc = "<div class='ei-fc'><span class='ei-src'>Forecast</span><strong>Ranking only</strong><span class='ei-src'>" \
-             "No validated sector target for this industry.</span></div>"
+    fc = ""
+    if has_model and r.state_id in fc_rows.index and pd.notna(fc_rows.loc[r.state_id].value):
+        f = fc_rows.loc[r.state_id]
+        fc = (f"<div class='ei-fc'><span class='ei-src'>Forecast · manufacturing real GSVA growth, {f.period}</span>"
+              f"<span class='ei-mono' style='font-size:18px'>{f.value:+.1f}%</span>"
+              f"<span class='ei-src'>{theme.esc(f.note)}</span></div>")
+    if fit_rows is not None and r.state_id in fit_rows.index:
+        fc += (f"<div class='ei-fc'><span class='ei-src'>Capital fit</span>"
+               f"<span style='font-size:14px'>{theme.esc(capital_line(fit_rows.loc[r.state_id]))}</span></div>")
     why = "".join(f"<div class='ei-why'><span class='p' aria-hidden='true'>+</span><span>{theme.esc(x)}</span></div>"
                   for x in pos)
     wn = "".join(f"<div class='ei-why'><span class='n' aria-hidden='true'>–</span><span>{theme.esc(x)}</span></div>"
@@ -120,6 +120,24 @@ with st.expander("All indicators: raw value, period, source and percentile score
     st.dataframe(t[["state", "dimension", "label", "Value", "Source · period", "score", "quality"]]
                  .rename(columns={"label": "indicator", "score": "percentile score"}),
                  hide_index=True, use_container_width=True)
+
+# ---- investment capital
+if fit:
+    st.subheader("Your investment: scale fit")
+    st.markdown(capital_summary(fit))
+    if fit_rows is not None:
+        b = fit["benchmarks"].copy()
+        b = b.set_index("state").loc[[s for s in rk.state if s in set(b.state)]].reset_index()
+        st.dataframe(pd.DataFrame({
+            "State": b.state,
+            "Avg fixed capital per factory": [rupees_crore(v) for v in b.plant_cr],
+            "Your investment vs that average": [f"{v:.1f}x" for v in b.scale_ratio],
+            "GVA per ₹100 of fixed capital": [f"₹{v:.0f}" for v in b.gva_per_100],
+            "Annual GVA at state average": [rupees_crore(v) for v in b.implied_gva_cr]}),
+            hide_index=True, use_container_width=True)
+        st.caption(f"Source: Annual Survey of Industries {b.period.iloc[0]} via RBI Handbook T116, T117, T128 "
+                   "(registered factories, current prices). Annual GVA at state average = your investment x the "
+                   "state's GVA per ₹100 of fixed capital: arithmetic on an average, not a forecast; GVA is not profit.")
 
 # ---- what-if and stability
 a, b = st.columns(2, gap="large")

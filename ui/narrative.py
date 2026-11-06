@@ -82,17 +82,37 @@ def lower_first(label: str) -> str:
     return label if label[:2].isupper() else label[:1].lower() + label[1:]
 
 
-def reason_line(x: dict) -> str:
-    """One strength / watch-out: what the number means, the evidence vs the other compared states, and why it
-    matters for this industry."""
-    peers = f"the other {x['n_peers']} compared state{'s' if x['n_peers'] != 1 else ''}"
+def national_note(x: dict, positive: bool) -> str:
+    """How far the state sits from the 30-state national average, in standard deviations (signed: + = favourable)."""
+    z = x.get("z_national")
+    if z is None or z != z:
+        return ""
+    if abs(z) < 0.05:
+        return "at the national average"
+    s = f"{z:+.1f} SD vs national average"
+    if positive and z < 0:
+        s += "; an edge over these peers, not nationally"
+    elif not positive and z > 0:
+        s += "; still above the national average"
+    return s
+
+
+def headline(x: dict) -> str:
+    h = x.get("headline") or x.get("meaning") or x["label"]
+    return h[:1].upper() + h[1:]
+
+
+def reason_line(x: dict, positive: bool = True) -> str:
+    """One strength / watch-out: an executive headline, then the evidence (vs the other compared states and vs the
+    national benchmark) and why it matters for this industry."""
     tags = []
     if x["priority"]:
         tags.append(f"your priority: {x['dimension_label'].lower()}")
     tags += [f"your need: {NEED_LABELS.get(n, n).lower()}" for n in x["needs"]]
-    meaning = x["meaning"][:1].upper() + x["meaning"][1:] if x["meaning"] else x["label"]
-    return (f"{meaning}: {lower_first(x['label'])} {fmt(x['value'], x['unit'])} vs {fmt(x['peer_median'], x['unit'])} "
-            f"median of {peers} ({source_tag(_Row(x))}). {x['why']}"
+    nat = national_note(x, positive)
+    return (f"{headline(x)} — {lower_first(x['label'])} {fmt(x['value'], x['unit'])} vs "
+            f"{fmt(x['peer_median'], x['unit'])} peer median"
+            + (f", {nat}" if nat else "") + f" ({source_tag(_Row(x))}). {x['why']}"
             + (f" [{'; '.join(tags)}]" if tags else "")).replace(" . ", " ").strip()
 
 
@@ -107,7 +127,7 @@ NO_NEG = "No indicator in this profile is materially weaker than the other compa
 
 def reasons(res, sid: str, k: int = 3) -> tuple[list[str], list[str]]:
     pos, neg = score_reasons(res, sid, k)
-    return [reason_line(x) for x in pos] or [NO_POS], [reason_line(x) for x in neg] or [NO_NEG]
+    return [reason_line(x, True) for x in pos] or [NO_POS], [reason_line(x, False) for x in neg] or [NO_NEG]
 
 
 def managerial(res) -> str:
@@ -119,9 +139,9 @@ def managerial(res) -> str:
         lead = ["leads", "follows", "is third"][i]
         txt = f"{r.state} {lead} ({r.score:.1f})"
         if pos:
-            txt += f". Biggest edge over the other compared states: {pos[0]['meaning']} ({pos[0]['dimension_label'].lower()})"
+            txt += f". Biggest edge: {lower_first(headline(pos[0]))} ({pos[0]['dimension_label'].lower()})"
         if neg:
-            txt += f"{';' if pos else '.'} main watch-out: {neg[0]['meaning']} ({neg[0]['dimension_label'].lower()})"
+            txt += f"{';' if pos else '.'} main watch-out: {lower_first(headline(neg[0]))} ({neg[0]['dimension_label'].lower()})"
         parts.append(txt + ".")
     gap = rk.score.iloc[0] - rk.score.iloc[1] if len(rk) > 1 else float("nan")
     if gap == gap and gap < 2:
@@ -130,6 +150,27 @@ def managerial(res) -> str:
     parts.append("State averages hide corridor- and district-level differences; use this list to decide where to "
                  "look next, not where to sign.")
     return " ".join(parts)
+
+
+def rupees_crore(v: float) -> str:
+    return f"₹{indian(v, 1 if v < 100 else 0)} cr"
+
+
+def capital_summary(fit: dict) -> str:
+    """What the investment entered does to the ranking (band + design-default tilt)."""
+    b = fit["band"]
+    return (f"₹{fit['capital']:g} crore puts this in the {b['label'].replace('Rs ', '₹')} band. {b['fit']} "
+            "Band edges and tilts are design defaults, not statutory or incentive thresholds.")
+
+
+def capital_line(row) -> str:
+    """Per-state capital fit from ASI: scale vs the state's average registered factory and capital productivity."""
+    r = row.scale_ratio
+    scale = ("larger than" if r >= 1.25 else "close to" if r >= 0.75 else "smaller than")
+    return (f"Your ₹{row.plant_cr * row.scale_ratio:g} cr is {r:.1f}x the average registered factory here "
+            f"({rupees_crore(row.plant_cr)}), {scale} the typical plant. Factories here add ₹{row.gva_per_100:.0f} "
+            f"of GVA a year per ₹100 of fixed capital: about {rupees_crore(row.implied_gva_cr)} a year at that "
+            f"average (ASI {row.period}; GVA is not profit).")
 
 
 def model_explanation(industry: str) -> tuple[str, bool]:

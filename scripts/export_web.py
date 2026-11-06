@@ -76,12 +76,21 @@ def main():
               {"industry": "hospitality", "priorities": ["policy"], "needs": ["power_intensive"], "states": list(PILOT_IDS),
                "current_state": "RJ", "exclude_current": True},
               {"industry": "manufacturing", "priorities": [], "needs": [], "states": list(PILOT_IDS),
-               "dimension_weights": {"demand": 10, "infrastructure": 10, "outlook": 50, "labour": 10, "ecosystem": 10, "cost": 10}}]
+               "dimension_weights": {"demand": 10, "infrastructure": 10, "outlook": 50, "labour": 10, "ecosystem": 10, "cost": 10}},
+              # capital bands (v4): every band, a band whose tilt hits a dimension the industry lacks, and a what-if
+              {"industry": "manufacturing", "priorities": [], "needs": [], "states": list(PILOT_IDS), "capital_rs_crore": 30},
+              {"industry": "manufacturing", "priorities": ["labour"], "needs": [], "states": list(PILOT_IDS), "capital_rs_crore": 75},
+              {"industry": "logistics", "priorities": ["infrastructure"], "needs": ["logistics_heavy"], "states": list(PILOT_IDS),
+               "capital_rs_crore": 250},
+              {"industry": "healthcare", "priorities": [], "needs": [], "states": list(PILOT_IDS), "capital_rs_crore": 120},
+              {"industry": "retail", "priorities": ["demand"], "needs": [], "states": list(PILOT_IDS), "capital_rs_crore": 2.5},
+              {"industry": "manufacturing", "priorities": [], "needs": [], "states": list(PILOT_IDS), "capital_rs_crore": 500,
+               "dimension_weights": {"demand": 10, "infrastructure": 30, "outlook": 20, "labour": 10, "ecosystem": 10, "cost": 10, "policy": 10}}]
     exp = []
     for c in cases:
         p = Profile(industry=c["industry"], priorities=c.get("priorities", []), needs=c.get("needs", []),
                     states=c["states"], current_state=c.get("current_state"), exclude_current=c.get("exclude_current", False),
-                    dimension_weights=c.get("dimension_weights"))
+                    capital_rs_crore=c.get("capital_rs_crore"), dimension_weights=c.get("dimension_weights"))
         r = score(p)
         exp.append({"profile": c, "ranking": [{"s": x.state_id, "score": x.score, "rank": int(x.rank)} for x in r.ranking.itertuples()],
                     "weights": r.dim_weights, "counter": r.counter,

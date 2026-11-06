@@ -73,3 +73,45 @@ def test_priorities_tag_and_reweight_reasons():
     p = {x["indicator"]: x["lever"] for x in sum(reasons(pri, "TG", 10), [])}
     common = [k for k in b if k in p and S["industries"]["retail"]["indicators"].get("cost", {}).get(k)]
     assert all(abs(p[k]) > abs(b[k]) for k in common)
+
+
+def test_every_scored_indicator_has_an_executive_takeaway():
+    tk = S["takeaways"]
+    for code, meta in S["indicators"].items():
+        if meta.get("benchmark_only"):
+            continue
+        assert tk["default"][code]["hi"] and tk["default"][code]["lo"], code
+    for ind, over in tk["industry"].items():
+        assert ind in S["industries"] and set(over) <= set(S["indicators"]), ind
+
+
+def test_industry_wording_overrides_the_default():
+    r = score(Profile("logistics"), with_stability=False)
+    items = [x for sid in r.ranking.state_id for x in sum(reasons(r, sid, 10), [])]
+    nh = [x for x in items if x["indicator"] == "nh_km_per_lakh_pop"]
+    assert nh and all(x["headline"] in S["takeaways"]["industry"]["logistics"]["nh_km_per_lakh_pop"].values() for x in nh)
+
+
+@pytest.mark.parametrize("industry,pri,needs", [("logistics", ["infrastructure"], ["logistics_heavy"]),
+                                                ("manufacturing", ["cost"], []), ("it_services", [], ["skilled_labour"])])
+def test_focus_items_are_listed_first(industry, pri, needs):
+    r = score(Profile(industry, priorities=pri, needs=needs), with_stability=False)
+    for sid in r.ranking.state_id:
+        for part in reasons(r, sid, 3):
+            flags = [x["focus"] for x in part]
+            assert flags == sorted(flags, reverse=True), (sid, flags)
+            for x in part:
+                assert x["focus"] == bool(x["priority"] or x["needs"])
+
+
+def test_national_z_score_is_signed_favourable():
+    import numpy as np
+    from scoring.score import _transform, reference
+    ref = reference()
+    r = score(Profile("manufacturing"), with_stability=False)
+    for x in sum(reasons(r, r.ranking.state_id.iloc[0], 10), []):
+        meta = S["indicators"][x["indicator"]]
+        v = np.array([_transform(a, meta.get("transform")) for a in ref[ref.feature_code == x["indicator"]].value])
+        v = v[~np.isnan(v)]
+        z = (_transform(x["value"], meta.get("transform")) - v.mean()) / v.std() * meta["direction"]
+        assert x["z_national"] == pytest.approx(z)

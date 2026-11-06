@@ -51,3 +51,18 @@ def test_ranking_only_industry_has_no_empty_forecast_tile():
                                        "states": list(PILOT_IDS), "current_state": None, "capital_rs_crore": 1.0})
     text = " ".join(m.value for m in at.markdown)
     assert "Forecast + ranking" not in text and "No forecast is offered for healthcare" in text
+
+
+def test_result_cards_carry_no_ranking_only_disclaimer():
+    """Forecast status lives in the model explanation, not on the state cards or the industry picker."""
+    at = _run("pages/results.py", {**DEMOS["it_services_mh"]["profile"], "states": list(PILOT_IDS)})
+    text = " ".join(m.value for m in at.markdown)
+    assert "No validated sector target" not in text and "<strong>Ranking only</strong>" not in text
+    at = _run("pages/profile.py", {**DEMOS["it_services_mh"]["profile"], "states": list(PILOT_IDS)})
+    assert not any("Ranking only" in c.value for c in at.caption)
+
+
+def test_manufacturing_results_show_capital_fit():
+    at = _run("pages/results.py", {**DEMOS["up_manufacturer"]["profile"], "states": list(PILOT_IDS)})
+    text = " ".join(m.value for m in at.markdown)
+    assert "Capital fit" in text and "Under ₹10 crore band" in text

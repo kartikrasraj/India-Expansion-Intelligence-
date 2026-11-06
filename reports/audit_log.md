@@ -104,8 +104,32 @@
   coverage table from the Eligibility page ("Why each state has this status" and Source vintages kept). No data or scores changed. 131/132 tests pass; the failure is
   `test_warehouse_tables` because `data/curated/warehouse.duckdb` is not in the checkout (gitignored build output).
 
+## Scoring v4: capital bands, executive rationales, cleaner results (6 Nov 2026)
+- Nothing downloaded. New derived rows (72, no existing value changed): `asi_fixed_capital_per_factory`
+  (T117 Rs lakh / 100 / T116 factories) and `asi_gva_per_100_fixed_capital` (T128 / T117, both current prices),
+  ASI 2023-24. Catalogued as `benchmark_only`: shown as capital-fit context, in no industry profile, never scored.
+- `scoring/weights_v4.yaml` (v3 kept): (1) `capital` bands (under Rs 10 cr / 10-50 / 50-100 / 100+) tilt dimension
+  weights after priorities and needs. These are design defaults, not statutory MSME limits or incentive
+  thresholds. A what-if override switches the tilt off, and a dimension the industry lacks is skipped and disclosed.
+  (2) `takeaways`: executive headline per indicator, with industry-specific wording where needed.
+  `reference_v4.parquet` is identical to v3 for every scored indicator; with no capital entered, v4 scores equal v3
+  (tested for all six industries).
+- Strengths / watch-outs: indicators in the user's priorities and needs are listed first, then the rest by lever
+  (gap x effective weight). Each bullet gives the state's distance from the 30-state national average in SDs,
+  flagged when it disagrees with the peer view ("an edge over these peers, not nationally").
+- Results: per-card "Capital fit" line and a "Your investment: scale fit" section. Implied annual GVA is the
+  investment x the state's average GVA per Rs 100 of fixed capital: arithmetic on an average, not a forecast; GVA is not profit.
+- UI: forecast-status tags removed from the profile industry tiles and the "Ranking only / No validated sector
+  target" block removed from results cards (web + Streamlit). Ranking-only status is still stated in the results
+  page's Model explanation, the Eligibility step, Home and How the index works (CLAUDE.md rule 6).
+- Parity fixtures regenerated with 6 capital cases (17 total); JS engine matches Python. 150 tests pass.
+- Not done: state industrial-policy incentives by capex threshold (capital subsidy, stamp duty, electricity
+  duty). No state policy document is in data/raw/, so no threshold can be shown without fabricating it (rule 2).
+
 ## Open questions
 1. Download the RBI XLSX files by hand? Optional: the HTML tables are the same official data.
 2. Gujarat FY 2023-24/2024-25 GSVA from Gujarat DES — different source; add as a separate, labelled panel?
 3. Confirm the scoring weights with a domain expert (they are design defaults).
 4. Ookla data is non-commercial (CC BY-NC-SA); a commercial deployment needs Ookla's permission.
+5. State industrial-promotion policies (7 pilots): acquire the official policy PDFs/notifications into
+   `data/raw/` so capex-threshold incentives can be extracted, registered and shown.

@@ -50,6 +50,13 @@
       return !!t && (bundle.registry[t] || {}).status === 'validated';
     };
 
+    // project-scale band for the investment entered (spec `capital`; design defaults, not statutory thresholds)
+    function capitalBand(c) {
+      if (!S.capital || !isNum(c) || c <= 0) return null;
+      for (const b of S.capital.bands) if (b.upper === null || b.upper === undefined || c < b.upper) return b;
+      return null;
+    }
+
     function effectiveWeights(p) {
       const prof = S.industries[p.industry];
       const notes = [];
@@ -86,8 +93,22 @@
         for (const i of supported) inds[rule.dimension][i] *= rule.indicator_multiplier;
         notes.push("Operational need '" + need + "': " + S.dimensions[rule.dimension].label + ' weight x' + rule.dim_multiplier + ', ' + supported.join(', ') + ' x' + rule.indicator_multiplier + '.');
       }
-      if (p.capital_rs_crore !== null && p.capital_rs_crore !== undefined && p.capital_rs_crore !== '')
-        notes.push('Investment capital is recorded as context only: no auditable state-level capex or rent data exists, so the budget does not change scores.');
+      const band = capitalBand(p.capital_rs_crore);
+      if (band) {
+        const lab = band.label.replace('Rs ', '₹'), amt = '₹' + p.capital_rs_crore + ' crore';
+        const tilt = Object.entries(band.tilt || {});
+        if (override) notes.push('Investment ' + amt + ' (' + lab + '): scale tilt already reflected in the what-if starting values.');
+        else if (!tilt.length) notes.push('Investment ' + amt + ' (' + lab + '): ' + band.fit);
+        else {
+          const done = [];
+          for (const [d, m] of tilt) {
+            if (!(d in dims)) { notes.push('Investment scale tilt on ' + S.dimensions[d].label.toLowerCase() + ' skipped: ' + prof.label + ' has no such dimension.'); continue; }
+            dims[d] *= m;
+            done.push(S.dimensions[d].label + ' x' + m);
+          }
+          if (done.length) notes.push('Investment ' + amt + ' (' + lab + '): ' + done.join(', ') + ' (design default). ' + band.fit);
+        }
+      }
       const tot = Object.values(dims).reduce((a, b) => a + b, 0);
       const w = {};
       for (const d of Object.keys(dims)) w[d] = dims[d] / tot;
@@ -269,6 +290,7 @@
       const minGap = cfg.min_gap === undefined ? 5 : cfg.min_gap, minRel = cfg.min_rel_diff === undefined ? 0.05 : cfg.min_rel_diff;
       const override = !!p.dimension_weights && Object.keys(p.dimension_weights).length > 0;
       const priDims = new Set(override ? [] : (p.priorities || []).map((x) => S.priorities.map[x]).filter((d) => d !== null && d !== undefined));
+      const tkDef = (S.takeaways || {}).default || {}, tkInd = ((S.takeaways || {}).industry || {})[res.industry] || {};
       const obs = res.indicators.filter((r) => r.observed);
       const items = [];
       for (const r of obs.filter((x) => x.state_id === sid)) {
@@ -282,16 +304,48 @@
         const needs = (p.needs || []).filter((n) => S.operational_needs[n].boost.includes(r.indicator) && S.operational_needs[n].dimension === r.dimension);
         const why = (prof.why || {})[r.indicator] || (needs.length ? S.operational_needs[needs[0]].why : '');
         const higher = gap * meta.direction > 0;
+        const side = higher ? 'hi' : 'lo';
+        // distance from the 30-state national average in SDs (population SD, same transform as scoring; + = favourable)
+        const refv = (bundle.reference[r.indicator] || []).map((v) => transform(v, meta.transform)).filter(isNum);
+        let z = NaN;
+        if (refv.length > 1) {
+          const mu = refv.reduce((a, b) => a + b, 0) / refv.length;
+          const sd = Math.sqrt(refv.reduce((a, b) => a + (b - mu) * (b - mu), 0) / refv.length);
+          if (sd) z = (transform(r.value, meta.transform) - mu) / sd * meta.direction;
+        }
+        const tk = ((tkInd[r.indicator] || tkDef[r.indicator]) || {})[side] || '';
+        const priority = priDims.has(r.dimension);
         items.push(Object.assign({}, r, { dimension_label: S.dimensions[r.dimension].label, peer_median: peerMed,
-          n_peers: new Set(o.map((x) => x.state_id)).size, gap, lever: gap * r.w_ind_eff * r.dim_weight,
-          meaning: meta[higher ? 'hi' : 'lo'] || '', why, priority: priDims.has(r.dimension), needs }));
+          n_peers: new Set(o.map((x) => x.state_id)).size, gap, lever: gap * r.w_ind_eff * r.dim_weight, z_national: z,
+          headline: tk, meaning: meta[side] || '', why, priority, needs, focus: priority || needs.length > 0 }));
       }
-      const pos = items.filter((x) => x.gap >= minGap && x.lever > 0).sort((x, y) => y.lever - x.lever).slice(0, k);
-      const neg = items.filter((x) => x.gap <= -minGap && x.lever < 0).sort((x, y) => x.lever - y.lever).slice(0, k);
+      // focus items (the user's priorities and needs) first, then by lever
+      const byFocus = (x, y) => (x.focus === y.focus ? 0 : x.focus ? -1 : 1);
+      const pos = items.filter((x) => x.gap >= minGap && x.lever > 0).sort((x, y) => byFocus(x, y) || y.lever - x.lever).slice(0, k);
+      const neg = items.filter((x) => x.gap <= -minGap && x.lever < 0).sort((x, y) => byFocus(x, y) || x.lever - y.lever).slice(0, k);
       return { pos, neg };
     }
 
-    return { effectiveWeights, indicatorTable, score, reasons, modelOk, spec: S };
+    // What the investment entered changes, plus sourced ASI benchmarks per ranked state (port of score.capital_fit).
+    // implied GVA = investment x state GVA per Rs 100 of fixed capital / 100: arithmetic on an average, not a forecast.
+    function capitalFit(res) {
+      const p = res.profile || {};
+      const band = capitalBand(p.capital_rs_crore);
+      if (!band) return null;
+      const cfg = S.capital;
+      const out = { capital: p.capital_rs_crore, band, benchmarks: [], shown: (cfg.benchmark_industries || []).includes(res.industry) };
+      if (!out.shown || !res.ranking.length) return out;
+      const [c0, c1] = cfg.benchmarks;
+      for (const r of res.ranking) {
+        const a = latest[r.state_id + '|' + c0], b = latest[r.state_id + '|' + c1];
+        if (!a || !b || !isNum(a.v) || !isNum(b.v)) continue;
+        out.benchmarks.push({ state_id: r.state_id, state: r.state, plant_cr: a.v, gva_per_100: b.v, period: a.p,
+          scale_ratio: p.capital_rs_crore / a.v, implied_gva_cr: p.capital_rs_crore * b.v / 100 });
+      }
+      return out;
+    }
+
+    return { effectiveWeights, indicatorTable, score, reasons, capitalBand, capitalFit, modelOk, spec: S };
   }
 
   function sign(x, d) { return (x >= 0 ? '+' : '') + x.toFixed(d); }

@@ -141,6 +141,22 @@ def derive(ind: pd.DataFrame, econ: pd.DataFrame) -> pd.DataFrame:
             out.append(_row(sid, per, "year", "credit_industry_share", a["value"] / b["value"] * 100, "%", [a, b],
                             "credit to industry (T158) / total SCB credit (T156)"))
 
+    # ASI capital benchmarks (same ASI year, both current prices, Rs lakh): average plant size and capital productivity
+    for sid in set(ind.state_id):
+        g = ind[(ind.state_id == sid) & (ind.feature_code == "asi_fixed_capital") & ind.value.notna()]
+        if g.empty:
+            continue
+        per = g.period.max()
+        fc, nf, gva = get(sid, "asi_fixed_capital", per), get(sid, "asi_factories", per), get(sid, "asi_gva", per)
+        if fc is not None and nf is not None and nf["value"] > 0:
+            out.append(_row(sid, per, "year", "asi_fixed_capital_per_factory", fc["value"] / 100 / nf["value"],
+                            "Rs crore per factory (current prices)", [fc, nf],
+                            f"ASI fixed capital (T117, Rs lakh) / 100 / factories (T116), {per}"))
+        if fc is not None and gva is not None and fc["value"] > 0:
+            out.append(_row(sid, per, "year", "asi_gva_per_100_fixed_capital", gva["value"] / fc["value"] * 100,
+                            "Rs GVA per Rs 100 of fixed capital (current prices)", [gva, fc],
+                            f"ASI GVA (T128) / fixed capital (T117), both Rs lakh current prices, {per}"))
+
     # momentum (3-year mean real growth, latest 3 growth years) and sector shares from fact_economic
     e = econ.sort_values(["state_id", "activity_code", "fy"]).copy()
     e["g"] = e.groupby(["state_id", "activity_code"]).value_rs_lakh.pct_change(fill_method=None) * 100

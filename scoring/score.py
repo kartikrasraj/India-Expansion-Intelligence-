@@ -10,7 +10,7 @@
   disclosed per state. A missing MANDATORY dimension excludes the state (etl/eligibility.py rule).
 - Forecast factor: only when models/registry.json marks the industry's model 'validated'; otherwise the outlook
   dimension uses historical momentum only.
-- Weights are design defaults (scoring/weights_<version>.yaml; v2 is current), not learned optima. The score is a relative screening
+- Weights are design defaults (scoring/weights_<version>.yaml; v4 is current), not learned optima. The score is a relative screening
   index, NOT a probability of success.
 """
 from __future__ import annotations
@@ -80,6 +80,19 @@ class Profile:
     dimension_weights: dict | None = None                      # what-if override (raw, renormalised)
 
 
+def capital_band(capital_rs_crore, version: str = CURRENT_VERSION) -> dict | None:
+    """Project-scale band for the investment entered (spec `capital`; design defaults, not statutory thresholds)."""
+    cfg = spec(version).get("capital")
+    if not cfg or capital_rs_crore is None or (isinstance(capital_rs_crore, float) and math.isnan(capital_rs_crore)):
+        return None
+    if capital_rs_crore <= 0:
+        return None
+    for b in cfg["bands"]:
+        if b["upper"] is None or capital_rs_crore < b["upper"]:
+            return b
+    return None
+
+
 def effective_weights(p: Profile, version: str = CURRENT_VERSION) -> tuple[dict, dict, list[str]]:
     """Return (dimension weights summing to 1, indicator weights per dimension, notes)."""
     s = spec(version)
@@ -128,9 +141,26 @@ def effective_weights(p: Profile, version: str = CURRENT_VERSION) -> tuple[dict,
             inds[rule["dimension"]][i] *= rule["indicator_multiplier"]
         notes.append(f"Operational need '{need}': {s['dimensions'][rule['dimension']]['label']} weight "
                      f"x{rule['dim_multiplier']}, {', '.join(supported)} x{rule['indicator_multiplier']}.")
-    if p.capital_rs_crore is not None:
-        notes.append("Investment capital is recorded as context only: no auditable state-level capex or rent data "
-                     "exists, so the budget does not change scores.")
+    band = capital_band(p.capital_rs_crore, version)
+    if band is not None:
+        lab = band["label"].replace("Rs ", "₹")
+        if override:
+            notes.append(f"Investment ₹{p.capital_rs_crore:g} crore ({lab}): scale tilt already reflected in the "
+                         "what-if starting values.")
+        elif not band["tilt"]:
+            notes.append(f"Investment ₹{p.capital_rs_crore:g} crore ({lab}): {band['fit']}")
+        else:
+            done = []
+            for d, m in band["tilt"].items():
+                if d not in dims:
+                    notes.append(f"Investment scale tilt on {s['dimensions'][d]['label'].lower()} skipped: "
+                                 f"{prof['label']} has no such dimension.")
+                    continue
+                dims[d] *= m
+                done.append(f"{s['dimensions'][d]['label']} x{m}")
+            if done:
+                notes.append(f"Investment ₹{p.capital_rs_crore:g} crore ({lab}): {', '.join(done)} "
+                             "(design default). " + band["fit"])
     tot = sum(dims.values())
     return {d: w / tot for d, w in dims.items()}, inds, notes
 
@@ -332,14 +362,20 @@ def reasons(res: Result, sid: str, k: int = 3) -> tuple[list[dict], list[dict]]:
     gap   = indicator score - median score of the other eligible states (percentile points); the raw difference from
             the peers' median must also be material (spec `reasons`), so a 0.03% vs 0.00% shortage is not a reason
     lever = gap x within-dimension weight x dimension weight (the user's effective weights)
+    z     = (value - national mean) / national SD on the frozen 30-state reference (same transform as scoring),
+            signed so that + is favourable: how far the state sits from the national benchmark
     Strengths are the largest positive levers, watch-outs the largest negative ones; gaps under `min_gap` points are
-    not reported. Each item carries the industry-specific reason the indicator is in the profile (`why`) and tags
-    for the user's priorities and operational needs that raised its weight.
+    not reported. Items in a dimension the user prioritised, or boosted by an operational need they chose, are listed
+    first ("focus"), then the rest by lever. Each item carries an executive headline (spec `takeaways`, industry
+    wording first), the industry-specific reason the indicator is in the profile (`why`) and focus tags.
     """
     s = spec(res.weights_version)
     if res.ranking.empty:
         return [], []
     prof = s["industries"][res.industry]
+    tk = s.get("takeaways", {})
+    tk_ind = tk.get("industry", {}).get(res.industry, {})
+    ref = reference(res.weights_version)
     t = res.indicators[res.indicators.observed]
     me, others = t[t.state_id == sid], t[t.state_id != sid]
     p = res.profile or Profile(industry=res.industry)
@@ -362,16 +398,64 @@ def reasons(res: Result, sid: str, k: int = 3) -> tuple[list[dict], list[dict]]:
         if abs(r.value - peer_med) < floor:   # e.g. 0.03% vs 0.00% energy shortage: real but immaterial
             continue
         higher = gap * meta["direction"] > 0
+        side = "hi" if higher else "lo"
+        refv = np.array([_transform(v, meta.get("transform")) for v in ref[ref.feature_code == r.indicator].value],
+                        dtype=float)
+        refv = refv[~np.isnan(refv)]
+        sd = float(refv.std()) if len(refv) > 1 else 0.0
+        z = (_transform(r.value, meta.get("transform")) - float(refv.mean())) / sd * meta["direction"] if sd else np.nan
         items.append({"indicator": r.indicator, "label": r.label, "dimension": r.dimension,
                       "dimension_label": s["dimensions"][r.dimension]["label"], "value": r.value, "unit": r.unit,
                       "period": r.period, "source_file": r.source_file, "quality": r.quality,
                       "peer_median": peer_med, "n_peers": int(o.state_id.nunique()),
                       "score": float(r.score), "gap": gap, "lever": gap * r.w_ind_eff * r.dim_weight,
-                      "meaning": meta.get("hi" if higher else "lo", ""), "why": why,
+                      "z_national": float(z),
+                      "headline": (tk_ind.get(r.indicator) or tk.get("default", {}).get(r.indicator) or {}).get(side, ""),
+                      "meaning": meta.get(side, ""), "why": why,
                       "priority": r.dimension in pri_dims, "needs": needs})
-    pos = sorted([x for x in items if x["gap"] >= min_gap and x["lever"] > 0], key=lambda x: -x["lever"])[:k]
-    neg = sorted([x for x in items if x["gap"] <= -min_gap and x["lever"] < 0], key=lambda x: x["lever"])[:k]
+    for x in items:
+        x["focus"] = bool(x["priority"] or x["needs"])
+    pos = sorted([x for x in items if x["gap"] >= min_gap and x["lever"] > 0],
+                 key=lambda x: (not x["focus"], -x["lever"]))[:k]
+    neg = sorted([x for x in items if x["gap"] <= -min_gap and x["lever"] < 0],
+                 key=lambda x: (not x["focus"], x["lever"]))[:k]
     return pos, neg
+
+
+def capital_fit(res: Result) -> dict | None:
+    """What the investment entered changes, plus sourced ASI benchmarks per ranked state (manufacturing only).
+
+    plant_cr      = average fixed capital per registered factory (ASI, Rs crore, current prices)
+    gva_per_100   = factory GVA per Rs 100 of fixed capital (ASI, current prices)
+    scale_ratio   = investment / plant_cr
+    implied_gva   = investment x gva_per_100 / 100: the GVA a plant of that size would add a year AT THE STATE'S
+                    AVERAGE capital productivity. Arithmetic on an average, not a forecast; GVA is not profit.
+    """
+    p = res.profile
+    cap = p.capital_rs_crore if p else None
+    band = capital_band(cap, res.weights_version)
+    if band is None:
+        return None
+    s = spec(res.weights_version)
+    cfg = s["capital"]
+    out = {"capital": float(cap), "band": band, "benchmarks": pd.DataFrame(),
+           "shown": res.industry in cfg.get("benchmark_industries", [])}
+    if not out["shown"] or res.ranking.empty:
+        return out
+    codes = cfg["benchmarks"]
+    lat = latest(codes)
+    lat = lat[lat.state_id.isin(res.ranking.state_id)].set_index(["state_id", "feature_code"])
+    rows = []
+    for sid in res.ranking.state_id:
+        if (sid, codes[0]) not in lat.index or (sid, codes[1]) not in lat.index:
+            continue
+        a, b = lat.loc[(sid, codes[0])], lat.loc[(sid, codes[1])]
+        rows.append({"state_id": sid, "state": name_of(sid), "plant_cr": float(a.value),
+                     "gva_per_100": float(b.value), "period": str(a.period),
+                     "source_file": f"{a.source_file};{b.source_file}", "quality": a.quality,
+                     "scale_ratio": cap / float(a.value), "implied_gva_cr": cap * float(b.value) / 100})
+    out["benchmarks"] = pd.DataFrame(rows)
+    return out
 
 
 def fmt_value(v, unit="") -> str:

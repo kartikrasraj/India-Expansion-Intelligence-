@@ -16,12 +16,12 @@ REFERENCE_KINDS = {"State"}
 REFERENCE_EXTRA = {"DL", "JK"}
 
 
-CURRENT_VERSION = "v3"   # weights_v1.yaml and weights_v2.yaml are kept for the audit trail
+CURRENT_VERSION = "v4"   # weights_v1/v2/v3.yaml are kept for the audit trail
 
 
 @functools.lru_cache(maxsize=4)
 def spec(version: str = CURRENT_VERSION) -> dict:
-    return yaml.safe_load((ROOT / "scoring" / f"weights_{version}.yaml").read_text())
+    return yaml.safe_load((ROOT / "scoring" / f"weights_{version}.yaml").read_text(encoding="utf-8"))
 
 
 @functools.lru_cache(maxsize=1)

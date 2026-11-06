@@ -7,12 +7,13 @@ import io
 import pandas as pd
 from fpdf import FPDF
 
-from scoring.data import sources_url
-from ui.narrative import fmt, managerial, model_explanation, reasons
+from scoring.data import CURRENT_VERSION, sources_url
+from scoring.score import capital_fit
+from ui.narrative import capital_line, capital_summary, fmt, managerial, model_explanation, reasons
 from ui.state import describe
 
 DISCLAIMER = ("Relative suitability index (0-100) for state screening. It is NOT a probability of commercial success, "
-              "profit or survival, and not financial advice. Weights are design defaults (v3), not learned optima.")
+              "profit or survival, and not financial advice. Weights are design defaults (v4), not learned optima.")
 
 
 def csv_bytes(res, profile: dict) -> bytes:
@@ -42,7 +43,7 @@ class _PDF(FPDF):
         self.set_y(-12)
         self.set_font("Helvetica", size=8)
         self.set_text_color(90, 98, 110)
-        self.cell(0, 6, _latin(f"India Expansion Intelligence | weights v3 | page {self.page_no()}"), align="R")
+        self.cell(0, 6, _latin(f"India Expansion Intelligence | weights {CURRENT_VERSION} | page {self.page_no()}"), align="R")
 
 
 def pdf_bytes(res, profile: dict) -> bytes:
@@ -102,6 +103,14 @@ def pdf_bytes(res, profile: dict) -> bytes:
             p("- " + x, 9, (154, 61, 0))
         if r.disclosure:
             p("Data gaps: " + r.disclosure, 8, (107, 70, 0))
+    fit = capital_fit(res)
+    if fit:
+        h("Your investment: scale fit")
+        p(capital_summary(fit), 9)
+        top = set(res.ranking.head(3).state_id)
+        for b in fit["benchmarks"].itertuples():
+            if b.state_id in top:
+                p(f"{b.state}: " + capital_line(b), 8)
     h("Could the runner-up win?")
     p(res.counter or "n/a", 9)
     h("Model explanation")

@@ -10,8 +10,8 @@ from scoring.score import Profile, effective_weights, percentile, score
 
 def test_weights_are_versioned_design_defaults():
     s = spec()
-    assert s["version"] == "v3"
-    assert spec("v1")["version"] == "v1" and spec("v2")["version"] == "v2"  # previous versions kept
+    assert s["version"] == "v4"
+    assert [spec(v)["version"] for v in ("v1", "v2", "v3")] == ["v1", "v2", "v3"]  # previous versions kept
     for ind, prof in s["industries"].items():
         assert sum(prof["weights"].values()) == 100, ind
         assert set(prof["weights"]) <= set(s["dimensions"]), ind
@@ -130,10 +130,57 @@ def test_exclude_current_state():
     assert "UP" not in set(r.ranking.state_id)
 
 
-def test_budget_is_context_only():
-    a = score(Profile("retail"), with_stability=False).ranking.score
-    b = score(Profile("retail", capital_rs_crore=8), with_stability=False)
-    assert np.allclose(a, b.ranking.score) and any("capital" in n.lower() for n in b.notes)
+def test_no_capital_gives_v3_scores():
+    """v4 only adds the capital tilt: without an investment entered, every industry scores exactly as in v3."""
+    for ind in spec()["industries"]:
+        a = score(Profile(ind), version="v3", with_stability=False).ranking.set_index("state_id").score
+        b = score(Profile(ind), with_stability=False).ranking.set_index("state_id").score
+        assert np.allclose(a[b.index], b), ind
+
+
+@pytest.mark.parametrize("cap,band", [(0.5, "small"), (9.99, "small"), (10, "mid"), (49, "mid"), (50, "upper_mid"),
+                                      (100, "large"), (5000, "large")])
+def test_capital_band_edges(cap, band):
+    assert sc.capital_band(cap)["key"] == band
+    assert sc.capital_band(None) is None and sc.capital_band(0) is None
+
+
+def test_capital_tilts_weights_as_specified():
+    s = spec()
+    base, _, _ = effective_weights(Profile("manufacturing"))
+    for b in s["capital"]["bands"]:
+        cap = 1 if b["upper"] == 10 else (b["upper"] or 1000) - 1
+        w, _, notes = effective_weights(Profile("manufacturing", capital_rs_crore=cap))
+        raw = {d: v * b["tilt"].get(d, 1) for d, v in base.items()}
+        tot = sum(raw.values())
+        assert all(w[d] == pytest.approx(raw[d] / tot) for d in w), b["key"]
+        assert any("design default" in n or "unchanged" in n for n in notes), notes
+
+
+def test_capital_tilt_skips_missing_dimension_and_what_if():
+    w, _, notes = effective_weights(Profile("healthcare", capital_rs_crore=500))   # healthcare has no ecosystem
+    assert "ecosystem" not in w and any("skipped" in n for n in notes)
+    dw = {"demand": 10, "infrastructure": 30, "outlook": 20, "labour": 10, "ecosystem": 10, "cost": 10, "policy": 10}
+    w, _, notes = effective_weights(Profile("manufacturing", capital_rs_crore=500, dimension_weights=dw))
+    assert w["infrastructure"] == pytest.approx(0.3) and any("what-if" in n for n in notes)
+
+
+def test_capital_fit_traces_to_asi_values():
+    r = score(Profile("manufacturing", capital_rs_crore=8), with_stability=False)
+    fit = sc.capital_fit(r)
+    assert fit["band"]["key"] == "small" and fit["shown"]
+    lat = sc.latest(["asi_fixed_capital", "asi_factories", "asi_gva"]).set_index(["state_id", "feature_code"]).value
+    for b in fit["benchmarks"].itertuples():
+        fc, nf, gva = lat[(b.state_id, "asi_fixed_capital")], lat[(b.state_id, "asi_factories")], lat[(b.state_id, "asi_gva")]
+        assert b.plant_cr == pytest.approx(fc / 100 / nf)          # Rs lakh -> Rs crore, converted once in ETL
+        assert b.gva_per_100 == pytest.approx(gva / fc * 100)
+        assert b.implied_gva_cr == pytest.approx(8 * gva / fc)
+    assert set(fit["benchmarks"].state_id) == set(r.ranking.state_id)
+    # benchmarks never enter a score
+    assert not r.indicators.indicator.str.startswith("asi_fixed_capital").any()
+    it = sc.capital_fit(score(Profile("it_services", capital_rs_crore=8), with_stability=False))
+    assert not it["shown"] and it["benchmarks"].empty
+    assert sc.capital_fit(score(Profile("retail"), with_stability=False)) is None
 
 
 # --- section 11: "Sector lacks defensible target" -> ranking-only and no fabricated forecast

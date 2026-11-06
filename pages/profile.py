@@ -31,9 +31,6 @@ with form:
     with st.container(border=True):
         industry = st.radio("1 · Industry", ind_keys, index=ind_keys.index(cur["industry"]),
                             format_func=lambda k: industries()[k], horizontal=True)
-        tgt = S["industries"][industry].get("model_target")
-        st.caption("A next-year growth forecast is available for this industry if the model passes validation."
-                   if tgt else f"Ranking only: {S['industries'][industry].get('target_note', '')}")
 
     with st.container(border=True):
         st.markdown("**2 · Where you are now**")
@@ -43,8 +40,9 @@ with form:
                                format_func=lambda s: s if s == OTHER_STATE else name_of(s))
         capital = c2.number_input("Investment capital (₹ crore)", min_value=0.0, step=0.5,
                                   value=float(cur.get("capital_rs_crore") or 0.0),
-                                  help="Context only: no auditable state-level capex or rent data exists, "
-                                       "so the budget does not change scores.")
+                                  help="Sets the project-scale band (under ₹10 cr, ₹10–50 cr, ₹50–100 cr, ₹100 cr+), "
+                                       "which tilts the weights, and drives the capital-fit benchmarks on the "
+                                       "results page.")
         excl = st.checkbox("Leave my current state out of the ranking", value=bool(cur.get("exclude_current")),
                            disabled=current == OTHER_STATE)
 
@@ -72,7 +70,7 @@ profile = {"industry": industry, "current_state": current, "capital_rs_crore": c
 with side:
     with st.container(border=True):
         st.subheader("Weights you will use")
-        st.caption(f"{industries()[industry]} defaults (v3), adjusted by your choices. Design defaults, not learned "
+        st.caption(f"{industries()[industry]} defaults (v4), adjusted by your choices. Design defaults, not learned "
                    "optima.")
         w, _, notes = effective_weights(to_profile(profile))
         base = S["industries"][industry]["weights"]
